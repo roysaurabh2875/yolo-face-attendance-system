@@ -1,0 +1,6 @@
+{
+  "name": "YOLO Face Scanner Attendance System",
+  "description": "College attendance management dashboard for faculty with YOLO-powered automated face recognition, real-time verification, and audit logs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

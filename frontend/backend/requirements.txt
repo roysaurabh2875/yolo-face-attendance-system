@@ -1,0 +1,41 @@
+# =====================================================================
+# YOLO Face Scanner Attendance System - Python Backend Dependencies
+# Supports: FastAPI, YOLOv8 Face Detection, Face Recognition & Database
+# =====================================================================
+
+# Web Framework & Server
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+python-multipart>=0.0.9
+pydantic>=2.6.4
+pydantic-settings>=2.2.1
+
+# Computer Vision & Deep Learning (YOLOv8)
+ultralytics>=8.1.34
+opencv-python-headless>=4.9.0.80
+torch>=2.2.1
+torchvision>=0.17.1
+numpy>=1.26.4
+Pillow>=10.2.0
+
+# Face Recognition & Embeddings
+deepface>=0.0.89
+scipy>=1.12.0
+
+# Database & ORM (SQLite / PostgreSQL / MySQL)
+sqlalchemy>=2.0.28
+alembic>=1.13.1
+aiosqlite>=0.20.0
+asyncpg>=0.29.0
+pymysql>=1.1.0
+
+# Authentication & Security (Teacher Role Verification & JWT)
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+bcrypt>=4.1.2
+
+# Data Processing, CSV & Excel Reports
+pandas>=2.2.1
+openpyxl>=3.1.2
+python-dotenv>=1.0.1
+httpx>=0.27.0
