@@ -40,7 +40,8 @@ import {
   Video,
   Power,
   Menu,
-  ChevronDown
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 
 interface AdminDashboardLayoutProps {
@@ -746,6 +747,91 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onOp
       }
     } catch (err: any) {
       addToast('error', 'Finalization Failed', err.message);
+    }
+  };
+
+  // State for session roster inspection and CSV download
+  const [expandedSessionId, setExpandedSessionId] = useState<number | null>(null);
+  const [expandedRecords, setExpandedRecords] = useState<Record<number, any[]>>({});
+  const [loadingSessionRecords, setLoadingSessionRecords] = useState<Record<number, boolean>>({});
+  const [downloadingSessionId, setDownloadingSessionId] = useState<number | null>(null);
+
+  const handleToggleExpandSession = async (sessionId: number) => {
+    if (expandedSessionId === sessionId) {
+      setExpandedSessionId(null);
+      return;
+    }
+    setExpandedSessionId(sessionId);
+    if (!expandedRecords[sessionId]) {
+      setLoadingSessionRecords((prev) => ({ ...prev, [sessionId]: true }));
+      try {
+        const res = await api.getPostedSessionRecords(sessionId);
+        if (res?.records && Array.isArray(res.records)) {
+          setExpandedRecords((prev) => ({ ...prev, [sessionId]: res.records }));
+        }
+      } catch (err) {
+        console.warn('Could not load session records:', err);
+      } finally {
+        setLoadingSessionRecords((prev) => ({ ...prev, [sessionId]: false }));
+      }
+    }
+  };
+
+  const handleDownloadSessionCsv = async (s: any) => {
+    const sessionId = s.session_id || parseInt(String(s.id).replace(/\D/g, ''), 10);
+    setDownloadingSessionId(sessionId);
+    try {
+      const res = await api.getPostedSessionRecords(sessionId);
+      const recordsToExport = res?.records && Array.isArray(res.records) ? res.records : [];
+
+      const sessionIdentifier = s.id || `SES-${String(sessionId).padStart(3, '0')}`;
+      const subjectCode = s.subject_code || 'CP301';
+      const subjectName = s.subject_name || 'Competitive Programming';
+      const className = s.class_name || 'III SU-1';
+      const section = s.section || 'SU-1';
+      const dateStr = s.date || new Date().toISOString().split('T')[0];
+      const timeSlot = s.time_slot || '09:30 AM - 12:15 PM';
+      const totalStudents = s.total_students || 110;
+      const presentCount = s.present_count || 0;
+      const absentCount = s.absent_count !== undefined ? s.absent_count : (totalStudents - presentCount);
+      const rate = s.attendance_rate !== undefined ? s.attendance_rate : (totalStudents > 0 ? ((presentCount / totalStudents) * 100).toFixed(1) : '0.0');
+
+      const csvRows: string[][] = [
+        ["CollegeVision Institutional Attendance Register - Session Report"],
+        [`Session ID: ${sessionIdentifier}`],
+        [`Subject: ${subjectCode} - ${subjectName}`],
+        [`Class: ${className} | Section: ${section}`],
+        [`Date: ${dateStr} | Time Slot: ${timeSlot}`],
+        [`Total Students: ${totalStudents} | Present: ${presentCount} | Absent: ${absentCount} | Attendance Rate: ${rate}%`],
+        [],
+        ["Roll Number", "Student Name", "Department", "Section", "Status", "Detection Source", "Timestamp"]
+      ];
+
+      recordsToExport.forEach((r: any) => {
+        csvRows.push([
+          r.roll_number || r.student_id,
+          `"${r.student_name}"`,
+          r.department || 'CSE',
+          r.section || section,
+          (r.status || 'absent').toUpperCase(),
+          r.source || 'SYSTEM',
+          r.timestamp || '-'
+        ]);
+      });
+
+      const csvContent = csvRows.map((row) => row.join(',')).join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Session_Attendance_${sessionIdentifier}_${subjectCode}_${dateStr}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      addToast('success', 'Session Register Downloaded', `Attendance CSV for ${sessionIdentifier} (${subjectCode}) downloaded.`);
+    } catch (err: any) {
+      addToast('error', 'Download Failed', err.message || 'Could not download session attendance records.');
+    } finally {
+      setDownloadingSessionId(null);
     }
   };
 
@@ -1731,46 +1817,184 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onOp
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800 font-mono">
-                    {allSessions.map((s) => (
-                      <tr key={s.session_id} className="hover:bg-slate-800/60">
-                        <td className="py-3 px-4 font-bold text-amber-400">{s.id}</td>
-                        <td className="py-3 px-4">
-                          <div className="font-bold text-white font-sans">{s.subject_name}</div>
-                          <div className="text-[11px] text-slate-400 font-mono">{s.subject_code} · {s.class_name} ({s.section})</div>
-                        </td>
-                        <td className="py-3 px-4 text-slate-300">
-                          <div>{s.date}</div>
-                          <div className="text-[11px] text-slate-400">{s.time_slot}</div>
-                        </td>
-                        <td className="py-3 px-4 text-white">
-                          <span className="text-emerald-400 font-bold">{s.present_count}</span> / {s.total_students}
-                        </td>
-                        <td className="py-3 px-4 font-bold text-slate-200">
-                          {s.attendance_rate}%
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                            s.status === 'FINALIZED'
-                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                              : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-                          }`}>
-                            {s.status}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          {s.status !== 'FINALIZED' ? (
-                            <button
-                              onClick={() => handleFinalizeSession(s.session_id)}
-                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white text-[11px] font-bold cursor-pointer"
-                            >
-                              Finalize Session
-                            </button>
-                          ) : (
-                            <span className="text-slate-500 text-[11px]">Finalized & Locked</span>
+                    {allSessions.map((s) => {
+                      const isExpanded = expandedSessionId === s.session_id;
+                      const isDownloading = downloadingSessionId === s.session_id;
+                      const records = expandedRecords[s.session_id];
+                      const isLoadingRoster = loadingSessionRecords[s.session_id];
+
+                      return (
+                        <React.Fragment key={s.session_id}>
+                          <tr className={`hover:bg-slate-800/60 transition-colors ${isExpanded ? 'bg-slate-800/90' : ''}`}>
+                            <td className="py-3 px-4 font-bold text-amber-400">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleExpandSession(s.session_id)}
+                                className="inline-flex items-center gap-1.5 hover:text-amber-300 cursor-pointer text-left"
+                                title="Click to view session student roster"
+                              >
+                                {isExpanded ? (
+                                  <ChevronUp className="w-3.5 h-3.5 text-blue-400" />
+                                ) : (
+                                  <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+                                )}
+                                <span>{s.id}</span>
+                              </button>
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="font-bold text-white font-sans">{s.subject_name}</div>
+                              <div className="text-[11px] text-slate-400 font-mono">{s.subject_code} · {s.class_name} ({s.section})</div>
+                            </td>
+                            <td className="py-3 px-4 text-slate-300">
+                              <div>{s.date}</div>
+                              <div className="text-[11px] text-slate-400">{s.time_slot}</div>
+                            </td>
+                            <td className="py-3 px-4 text-white">
+                              <span className="text-emerald-400 font-bold">{s.present_count}</span> / {s.total_students}
+                            </td>
+                            <td className="py-3 px-4 font-bold text-slate-200">
+                              {s.attendance_rate}%
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                                s.status === 'FINALIZED'
+                                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                                  : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                              }`}>
+                                {s.status}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                {/* Download CSV for this session */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleDownloadSessionCsv(s)}
+                                  disabled={isDownloading}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-700/90 hover:bg-slate-600 text-white rounded-lg text-xs font-bold border border-slate-600 shadow-2xs transition-colors cursor-pointer disabled:opacity-50"
+                                  title="Download attendance sheet CSV for this session"
+                                >
+                                  <Download className={`w-3.5 h-3.5 text-emerald-400 ${isDownloading ? 'animate-bounce' : ''}`} />
+                                  <span>{isDownloading ? 'Downloading...' : 'Download CSV'}</span>
+                                </button>
+
+                                {/* Roster View Toggle */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleExpandSession(s.session_id)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 transition-colors cursor-pointer"
+                                  title="Inspect student list"
+                                >
+                                  <Eye className="w-3.5 h-3.5" />
+                                  <span>{isExpanded ? 'Hide' : 'Roster'}</span>
+                                </button>
+
+                                {/* Finalize Session button if pending */}
+                                {s.status !== 'FINALIZED' ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleFinalizeSession(s.session_id)}
+                                    className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white text-xs font-bold cursor-pointer transition-colors shadow-2xs"
+                                  >
+                                    Finalize Session
+                                  </button>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold text-slate-400 bg-slate-900/60 border border-slate-800">
+                                    <Lock className="w-3 h-3 text-slate-500" />
+                                    Locked
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+
+                          {/* Expandable Session Roster Drawer */}
+                          {isExpanded && (
+                            <tr className="bg-slate-900/95 border-b border-slate-700">
+                              <td colSpan={7} className="p-4">
+                                <div className="bg-slate-800/90 rounded-xl border border-slate-700/90 p-4 space-y-3 shadow-md">
+                                  <div className="flex flex-wrap items-center justify-between pb-3 border-b border-slate-700/70 gap-2">
+                                    <div>
+                                      <h4 className="text-xs font-bold text-white flex items-center gap-2">
+                                        <Users className="w-4 h-4 text-blue-400" />
+                                        Attendance Roster for Session {s.id} ({s.subject_code} - {s.subject_name})
+                                      </h4>
+                                      <p className="text-[11px] text-slate-400 mt-0.5">
+                                        Date: {s.date} | Class: {s.class_name} ({s.section}) | Present: <span className="text-emerald-400 font-bold">{s.present_count}</span>, Absent: <span className="text-rose-400 font-bold">{s.total_students - s.present_count}</span>
+                                      </p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDownloadSessionCsv(s)}
+                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg shadow-sm transition-colors cursor-pointer"
+                                    >
+                                      <Download className="w-3.5 h-3.5" />
+                                      <span>Download Session CSV</span>
+                                    </button>
+                                  </div>
+
+                                  {isLoadingRoster ? (
+                                    <div className="py-6 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+                                      <RefreshCw className="w-4 h-4 animate-spin text-blue-400" />
+                                      <span>Loading attendance records from database...</span>
+                                    </div>
+                                  ) : records && records.length > 0 ? (
+                                    <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-700/60 font-sans">
+                                      <table className="w-full text-xs text-left">
+                                        <thead className="bg-slate-900/90 text-[10px] uppercase font-bold text-slate-400 sticky top-0 border-b border-slate-700">
+                                          <tr>
+                                            <th className="py-2 px-3">Roll Number</th>
+                                            <th className="py-2 px-3">Student Name</th>
+                                            <th className="py-2 px-3">Status</th>
+                                            <th className="py-2 px-3">Source</th>
+                                            <th className="py-2 px-3">Timestamp</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-700/60 font-mono text-[11px]">
+                                          {records.map((r: any, rIdx: number) => {
+                                            const isPresent = (r.status || '').toLowerCase() === 'present';
+                                            return (
+                                              <tr key={r.student_id || r.roll_number || rIdx} className="hover:bg-slate-700/40">
+                                                <td className="py-2 px-3 font-bold text-white">
+                                                  {r.roll_number || r.student_id}
+                                                </td>
+                                                <td className="py-2 px-3 font-medium text-slate-200 font-sans">
+                                                  {r.student_name || 'Student'}
+                                                </td>
+                                                <td className="py-2 px-3">
+                                                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                                    isPresent
+                                                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                                      : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                                                  }`}>
+                                                    {isPresent && <UserCheck className="w-3 h-3 text-emerald-400" />}
+                                                    {(r.status || 'ABSENT').toUpperCase()}
+                                                  </span>
+                                                </td>
+                                                <td className="py-2 px-3 text-slate-400 text-[10px]">
+                                                  {r.source || 'SYSTEM'}
+                                                </td>
+                                                <td className="py-2 px-3 text-slate-400 text-[10px]">
+                                                  {r.timestamp || '-'}
+                                                </td>
+                                              </tr>
+                                            );
+                                          })}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  ) : (
+                                    <div className="py-4 text-center text-xs text-slate-400 italic">
+                                      No individual student records recorded for this session.
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
                           )}
-                        </td>
-                      </tr>
-                    ))}
+                        </React.Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
