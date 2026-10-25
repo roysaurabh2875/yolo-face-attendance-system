@@ -37,7 +37,7 @@ export const StudentDetailsModal: React.FC<StudentDetailsModalProps> = ({
   if (!student) return null;
 
   // Find record for current session
-  const currentRecord = attendanceRecords.find((r) => r.studentId === student.id);
+  const currentRecord = attendanceRecords.find((r) => r.studentId === student.id || (student.rollNumber && r.rollNumber === student.rollNumber));
   const isPresent = currentRecord?.status === 'present';
 
   const [remoteHistory, setRemoteHistory] = useState<any[]>([]);
@@ -67,20 +67,29 @@ export const StudentDetailsModal: React.FC<StudentDetailsModalProps> = ({
 
   // Real session attendance logs for this student (no fake placeholder entries)
   const historicalLogs = useMemo(() => {
-    const logs = [...remoteHistory];
+    let logs = [...remoteHistory];
     if (currentRecord && (currentRecord.status === 'present' || currentRecord.method === 'manual')) {
-      const alreadyHas = logs.some((l) => String(l.session_id) === String(currentSession.id));
-      if (!alreadyHas) {
-        logs.unshift({
-          session_id: currentSession.id,
-          date: currentRecord.date || new Date().toISOString().slice(0, 10),
-          time: currentRecord.timestamp || 'Current Session',
-          subject: currentRecord.subjectCode || selectedSubjectCode,
-          status: currentRecord.status,
-          method: currentRecord.method || 'face_recognition',
-          confidence: currentRecord.confidenceScore,
-          notes: currentRecord.modificationReason || 'Verified in active session'
-        });
+      const existingIdx = logs.findIndex((l) => String(l.session_id) === String(currentSession.id));
+      const currentLogEntry = {
+        session_id: currentSession.id,
+        date: currentRecord.date || new Date().toISOString().slice(0, 10),
+        time: currentRecord.timestamp || 'Current Session',
+        subject: currentRecord.subjectCode || selectedSubjectCode,
+        status: currentRecord.status,
+        method: currentRecord.method || (currentRecord.status === 'present' ? 'face_recognition' : 'none'),
+        confidence: currentRecord.confidenceScore,
+        notes: currentRecord.method === 'manual' && currentRecord.modificationReason
+          ? currentRecord.modificationReason
+          : (currentRecord.method === 'face_recognition' ? 'Verified by YOLO Face Scan' : 'Active Session')
+      };
+
+      if (existingIdx >= 0) {
+        logs[existingIdx] = {
+          ...logs[existingIdx],
+          ...currentLogEntry
+        };
+      } else {
+        logs.unshift(currentLogEntry);
       }
     }
     return logs;
@@ -168,7 +177,7 @@ export const StudentDetailsModal: React.FC<StudentDetailsModalProps> = ({
                     <span className="text-slate-500 italic">No entry captured</span>
                   )}
                 </p>
-                {currentRecord?.modificationReason && (
+                {currentRecord?.method === 'manual' && currentRecord?.modificationReason && (
                   <p className="text-slate-600 bg-white/70 p-2 rounded border border-slate-200/60 mt-1">
                     <span className="font-semibold text-slate-800">Faculty Override Note: </span>
                     {currentRecord.modificationReason}

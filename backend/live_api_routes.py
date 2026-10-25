@@ -209,9 +209,35 @@ def get_student_attendance_history(student_id: str, db: Session = Depends(get_db
         .all()
     )
 
+    # Fetch audit logs to obtain any faculty override reason for manual records
+    att_ids = [att.attendance_id for att, _, _ in records]
+    audits = (
+        db.query(AttendanceAudit)
+        .filter(AttendanceAudit.attendance_id.in_(att_ids))
+        .order_by(AttendanceAudit.changed_at.desc())
+        .all()
+    ) if att_ids else []
+    audit_by_att_id = {}
+    for a in audits:
+        if a.attendance_id not in audit_by_att_id:
+            audit_by_att_id[a.attendance_id] = a
+
     history = []
     for att, sess, subj in records:
         time_slot = "09:30 AM - 12:15 PM"
+        audit = audit_by_att_id.get(att.attendance_id)
+        is_manual = (att.source == "MANUAL")
+
+        if is_manual:
+            method = "manual"
+            notes = audit.reason if audit else "Faculty Manual Override"
+        elif att.source == "FACE" or att.status == "PRESENT":
+            method = "face_recognition"
+            notes = f"Recorded in Session #{sess.session_id} ({sess.status})"
+        else:
+            method = "none"
+            notes = f"Recorded in Session #{sess.session_id} ({sess.status})"
+
         history.append({
             "session_id": sess.session_id,
             "date": str(sess.session_date),
@@ -219,9 +245,9 @@ def get_student_attendance_history(student_id: str, db: Session = Depends(get_db
             "subject": subj.subject_name if subj else "Competitive Programming",
             "subject_code": subj.subject_code if subj else f"CP{300 + sess.period_number}",
             "status": att.status.lower(),
-            "method": "face_recognition" if att.status == "PRESENT" else "none",
+            "method": method,
             "time": time_slot,
-            "notes": f"Recorded in Session #{sess.session_id} ({sess.status})"
+            "notes": notes
         })
 
     return {
@@ -294,7 +320,8 @@ def get_active_session_data(db: Session = Depends(get_db)):
         else:
             absent_count += 1
 
-        audit_entry = audit_by_att_id.get(rec.attendance_id) if rec else None
+        is_manual = bool(rec and rec.source == "MANUAL")
+        audit_entry = audit_by_att_id.get(rec.attendance_id) if (rec and is_manual) else None
         all_records.append({
             "id": f"REC-{session.session_id}-{s.student_id}",
             "sessionId": str(session.session_id),
@@ -309,12 +336,12 @@ def get_active_session_data(db: Session = Depends(get_db)):
             "date": session.session_date.isoformat(),
             "timeSlot": "09:30 AM - 12:15 PM",
             "status": current_status,
-            "method": "face_recognition" if (rec and rec.source == "FACE") else ("manual" if (rec and rec.source == "MANUAL") else None),
+            "method": "manual" if is_manual else ("face_recognition" if (rec and rec.source == "FACE") else None),
             "confidenceScore": 0.965 if (rec and rec.source == "FACE") else None,
             "timestamp": rec.marked_at.strftime("%I:%M:%S %p") if (rec and rec.marked_at) else None,
-            "modifiedByTeacherName": audit_entry.changed_by if audit_entry else None,
-            "modificationReason": audit_entry.reason if audit_entry else None,
-            "modifiedAt": audit_entry.changed_at.strftime("%I:%M:%S %p") if audit_entry else None
+            "modifiedByTeacherName": audit_entry.changed_by if (is_manual and audit_entry) else None,
+            "modificationReason": audit_entry.reason if (is_manual and audit_entry) else None,
+            "modifiedAt": audit_entry.changed_at.strftime("%I:%M:%S %p") if (is_manual and audit_entry) else None
         })
 
     status_mapped = "in_progress" if session.status == "ACTIVE" else ("scheduled" if session.status == "REVIEW" else "finalized")

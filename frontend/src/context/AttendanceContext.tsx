@@ -834,7 +834,11 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             status: 'present',
             method: 'face_recognition',
             confidenceScore: confidence,
-            timestamp: nowFormatted
+            timestamp: nowFormatted,
+            modifiedByTeacherId: undefined,
+            modifiedByTeacherName: undefined,
+            modificationReason: undefined,
+            modifiedAt: undefined
           };
         }
         return r;
